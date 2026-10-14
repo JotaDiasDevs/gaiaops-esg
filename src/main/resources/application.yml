@@ -1,0 +1,73 @@
+# =============================================================================
+# GaiaOps ESG - configuracao base (vale para todos os ambientes)
+#
+# Tudo que muda entre ambientes vem de VARIAVEIS DE AMBIENTE, com um valor
+# padrao para desenvolvimento local. Os perfis "staging" e "prod" ajustam
+# apenas comportamento (logs, Swagger, detalhes do health check).
+# =============================================================================
+
+spring:
+  application:
+    name: gaiaops-esg
+  data:
+    mongodb:
+      # Local: MongoDB instalado na maquina. No Docker Compose: vem do .env.
+      uri: ${MONGODB_URI:mongodb://localhost:27017/gaiaops_esg_api}
+  jackson:
+    # A API fala snake_case, igual aos campos dos documentos no MongoDB.
+    property-naming-strategy: SNAKE_CASE
+    default-property-inclusion: non_null
+  web:
+    # Mensagens de validacao (Bean Validation) em portugues.
+    locale: pt_BR
+    locale-resolver: fixed
+
+server:
+  port: ${SERVER_PORT:8080}
+  # Encerramento gracioso: no "docker compose up" de um novo deploy, as
+  # requisicoes em andamento terminam antes de o container antigo sair.
+  shutdown: graceful
+
+gaiaops:
+  # Nome do ambiente exibido na pagina inicial, no Swagger e em /actuator/info.
+  ambiente: ${GAIAOPS_AMBIENTE:local}
+  seed:
+    # Carga inicial com os dados da Fase 5 (so popula collections vazias).
+    enabled: ${GAIAOPS_SEED_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      # /actuator/health/liveness e /actuator/health/readiness
+      probes:
+        enabled: true
+      group:
+        # "Pronto" so quando a aplicacao subiu E o MongoDB responde.
+        # E este endpoint que o HEALTHCHECK do Docker e o smoke test consultam.
+        readiness:
+          include: readinessState,mongo
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+
+# Exibido em /actuator/info - permite conferir QUAL versao esta em QUAL ambiente.
+info:
+  app:
+    nome: GaiaOps ESG
+    descricao: API de gestao ESG para Cidades Inteligentes
+    versao: '@project.version@'
+    ambiente: ${gaiaops.ambiente}
+    # Hash do commit que gerou a imagem (injetado pelo pipeline).
+    commit: ${APP_COMMIT:local}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha

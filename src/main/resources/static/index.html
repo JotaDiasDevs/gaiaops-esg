@@ -1,0 +1,187 @@
+<!doctype html>
+<!--
+  GaiaOps ESG - pagina inicial
+
+  Pagina estatica servida pela propria API. Mostra em qual ambiente a aplicacao
+  esta rodando (local, staging ou producao), qual versao/commit foi implantado
+  e o painel ESG calculado ao vivo. Usada como evidencia visual do deploy.
+-->
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GaiaOps ESG</title>
+  <style>
+    :root {
+      --fundo: #f4f6f5;
+      --cartao: #ffffff;
+      --texto: #1d2a24;
+      --suave: #5b6b63;
+      --borda: #dfe5e2;
+      --verde: #1f7a4d;
+      --ambiente: #64748b;
+    }
+    body[data-ambiente="staging"] { --ambiente: #b45309; }
+    body[data-ambiente="producao"] { --ambiente: #1f7a4d; }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--fundo);
+      color: var(--texto);
+    }
+    .faixa {
+      background: var(--ambiente);
+      color: #fff;
+      padding: 10px 24px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-size: 14px;
+    }
+    main { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+    header h1 { margin: 0 0 4px; font-size: 28px; }
+    header p { margin: 0; color: var(--suave); }
+    .meta {
+      display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 24px;
+    }
+    .chip {
+      background: var(--cartao); border: 1px solid var(--borda); border-radius: 999px;
+      padding: 4px 12px; font-size: 13px; color: var(--suave);
+    }
+    .chip b { color: var(--texto); }
+    .status-up { color: var(--verde); }
+    .status-down { color: #b91c1c; }
+    .grade {
+      display: grid; gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    section.pilar {
+      background: var(--cartao); border: 1px solid var(--borda); border-radius: 12px; padding: 16px 18px;
+    }
+    section.pilar h2 { margin: 0 0 12px; font-size: 16px; }
+    section.pilar h2 span { color: var(--suave); font-weight: 400; }
+    dl { margin: 0; display: grid; grid-template-columns: 1fr auto; row-gap: 8px; column-gap: 12px; }
+    dt { color: var(--suave); font-size: 14px; }
+    dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+    nav { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 10px; }
+    nav a {
+      color: var(--verde); text-decoration: none; border: 1px solid var(--borda);
+      background: var(--cartao); padding: 8px 12px; border-radius: 8px; font-size: 14px;
+    }
+    nav a:hover { border-color: var(--verde); }
+    .erro { color: #b91c1c; }
+    footer { margin-top: 32px; color: var(--suave); font-size: 13px; }
+  </style>
+</head>
+<body data-ambiente="local">
+  <div class="faixa" id="faixa">Ambiente: carregando...</div>
+  <main>
+    <header>
+      <h1>GaiaOps ESG</h1>
+      <p>Gestao ESG para Cidades Inteligentes &middot; Vila Nova do Horizonte</p>
+    </header>
+
+    <div class="meta">
+      <span class="chip">Versao <b id="versao">-</b></span>
+      <span class="chip">Commit <b id="commit">-</b></span>
+      <span class="chip">Build <b id="build">-</b></span>
+      <span class="chip">Saude <b id="saude">-</b></span>
+    </div>
+
+    <div class="grade" id="painel">
+      <section class="pilar"><h2>Carregando indicadores...</h2></section>
+    </div>
+
+    <nav>
+      <a href="/api/indicadores">/api/indicadores</a>
+      <a href="/api/equipamentos">/api/equipamentos</a>
+      <a href="/api/medicoes/alertas?somente_abertos=true">/api/medicoes/alertas</a>
+      <a href="/actuator/health">/actuator/health</a>
+      <a href="/actuator/info">/actuator/info</a>
+      <a href="/swagger-ui.html" id="link-swagger" hidden>Swagger UI</a>
+    </nav>
+
+    <footer id="rodape"></footer>
+  </main>
+
+  <script>
+    const NOMES_AMBIENTE = { local: "Local", staging: "Staging (homologacao)", producao: "Producao" };
+    const numero = (v, casas = 0) =>
+      Number(v ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: casas });
+
+    async function json(url) {
+      const resposta = await fetch(url, { headers: { Accept: "application/json" } });
+      return { ok: resposta.ok, corpo: await resposta.json().catch(() => ({})) };
+    }
+
+    function pilar(titulo, subtitulo, linhas) {
+      const itens = linhas.map(([rotulo, valor]) => `<dt>${rotulo}</dt><dd>${valor}</dd>`).join("");
+      return `<section class="pilar"><h2>${titulo} <span>${subtitulo}</span></h2><dl>${itens}</dl></section>`;
+    }
+
+    async function carregar() {
+      const info = (await json("/actuator/info")).corpo;
+      const app = info.app || {};
+      const ambiente = app.ambiente || "local";
+      document.body.dataset.ambiente = ambiente;
+      document.getElementById("faixa").textContent = "Ambiente: " + (NOMES_AMBIENTE[ambiente] || ambiente);
+      document.getElementById("versao").textContent = app.versao || "-";
+      document.getElementById("commit").textContent = (app.commit || "-").substring(0, 7);
+      document.getElementById("build").textContent =
+        info.build && info.build.time ? new Date(info.build.time).toLocaleString("pt-BR") : "-";
+
+      const saude = await json("/actuator/health/readiness");
+      const status = saude.corpo.status || "DOWN";
+      const elSaude = document.getElementById("saude");
+      elSaude.textContent = status;
+      elSaude.className = status === "UP" ? "status-up" : "status-down";
+
+      // O Swagger fica desligado em producao: so mostra o link se ele existir.
+      fetch("/v3/api-docs", { method: "HEAD" })
+        .then(r => { if (r.ok) document.getElementById("link-swagger").hidden = false; })
+        .catch(() => {});
+
+      const painel = await json("/api/indicadores");
+      if (!painel.ok) {
+        document.getElementById("painel").innerHTML =
+          '<section class="pilar"><h2 class="erro">Nao foi possivel carregar o painel ESG</h2></section>';
+        return;
+      }
+      const { ambiental: e, social: s, governanca: g } = painel.corpo;
+      const niveis = Object.entries(e.alertas_abertos_por_nivel || {})
+        .map(([nivel, total]) => `${nivel}: ${total}`).join(" &middot; ") || "nenhum";
+
+      document.getElementById("painel").innerHTML =
+        pilar("Ambiental", "E", [
+          ["Medicoes de sensores", numero(e.medicoes)],
+          ["Alertas abertos", numero(e.alertas_abertos)],
+          ["Por nivel", niveis],
+          ["Residuos coletados", numero(e.residuos_coletados_kg) + " kg"],
+          ["Desvio de aterro", numero(e.taxa_desvio_de_aterro_pct, 1) + "%"],
+        ]) +
+        pilar("Social", "S", [
+          ["Programas ativos", numero(s.programas_ativos)],
+          ["Beneficiarios acompanhados", numero(s.beneficiarios_acompanhados)],
+          ["Orcamento previsto", "R$ " + numero(s.orcamento_previsto_brl)],
+          ["Execucao orcamentaria", numero(s.execucao_orcamentaria_pct, 1) + "%"],
+        ]) +
+        pilar("Governanca", "G", [
+          ["Equipamentos ativos", numero(g.equipamentos_ativos) + " de " + numero(g.equipamentos_total)],
+          ["Licencas vencidas", numero(g.licencas_vencidas)],
+          ["Licencas por vencer (180 dias)", numero(g.licencas_por_vencer)],
+          ["Manifestacoes de ouvidoria", numero(g.manifestacoes_ouvidoria)],
+          ["Termos de ajustamento", numero(g.termos_ajustamento)],
+        ]);
+
+      document.getElementById("rodape").textContent =
+        "Painel gerado em " + new Date(painel.corpo.gerado_em).toLocaleString("pt-BR");
+    }
+
+    carregar().catch(erro => {
+      document.getElementById("faixa").textContent = "Erro ao carregar: " + erro.message;
+    });
+  </script>
+</body>
+</html>

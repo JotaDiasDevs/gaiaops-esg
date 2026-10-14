@@ -1,0 +1,11 @@
+# =============================================================================
+# Perfil STAGING - ambiente de homologacao
+#
+# Espelha producao, mas com mais visibilidade para quem esta validando:
+# log detalhado da aplicacao e Swagger UI habilitado.
+# =============================================================================
+
+logging:
+  level:
+    br.com.fiap.gaiaops: DEBUG
+    org.springframework.data.mongodb.core.MongoTemplate: DEBUG

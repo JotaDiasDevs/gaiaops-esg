@@ -1,0 +1,22 @@
+# =============================================================================
+# Perfil PROD - ambiente de producao
+#
+# Superficie minima: sem Swagger UI, sem detalhes internos no health check
+# (o status UP/DOWN continua disponivel para o orquestrador) e log em INFO.
+# =============================================================================
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: INFO
+    br.com.fiap.gaiaops: INFO

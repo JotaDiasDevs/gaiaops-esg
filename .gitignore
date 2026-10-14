@@ -1,0 +1,27 @@
+# Build
+target/
+*.class
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+
+# Variaveis de ambiente e segredos (NUNCA versionar)
+.env
+deploy/.segredos-*.env
+
+# Evidencias geradas localmente pelos scripts de deploy
+# (as do pipeline ficam nos artefatos de cada execucao do GitHub Actions)
+evidencias/
+
+# Saidas das ferramentas de documentacao
+tools/__pycache__/
+entrega/
+
+# Sistema operacional
+.DS_Store
+Thumbs.db

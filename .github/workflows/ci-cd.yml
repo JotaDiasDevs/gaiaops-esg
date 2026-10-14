@@ -1,0 +1,276 @@
+# =============================================================================
+# GaiaOps ESG - pipeline de CI/CD (GitHub Actions)
+#
+#   1. Build ............ compila e empacota o .jar
+#   2. Testes ........... unitarios + integracao (MongoDB real via Testcontainers)
+#   3. Imagem Docker .... constroi a imagem e publica no GitHub Container Registry
+#   4. Deploy staging ... sobe o ambiente com Docker Compose + smoke test
+#   5. Deploy producao .. mesma imagem, apos aprovacao manual + smoke test
+#
+# Pull requests executam apenas 1 e 2 (validacao). Push na main executa tudo.
+# Cada etapa so roda se a anterior passou: um teste quebrado nunca vira imagem,
+# e uma imagem que falha em staging nunca chega a producao.
+# =============================================================================
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    # Mudancas so de documentacao/evidencias nao disparam build nem deploy.
+    paths-ignore:
+      - "docs/**"
+      - "evidencias/**"
+      - "**/*.md"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Uma execucao por branch por vez. Em PR, um push novo cancela o anterior;
+# na main nunca se cancela um deploy pela metade.
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: "21"
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  build:
+    name: 1. Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Java ${{ env.JAVA_VERSION }} (Temurin) com cache do Maven
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      - name: Compilar e empacotar
+        run: ./mvnw -B -ntp package -DskipTests
+
+      - name: Publicar o .jar como artefato
+        uses: actions/upload-artifact@v7
+        with:
+          name: gaiaops-esg-jar
+          path: target/gaiaops-esg.jar
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  test:
+    name: 2. Testes automatizados
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Java ${{ env.JAVA_VERSION }} (Temurin) com cache do Maven
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+
+      # "verify" roda os testes unitarios (surefire) e, em seguida, os de
+      # integracao (failsafe), que sobem um MongoDB 8.0 real em container.
+      - name: Testes unitarios e de integracao (JUnit 5 + Testcontainers)
+        run: ./mvnw -B -ntp verify
+
+      - name: Resumo dos testes
+        if: always()
+        run: python3 .github/scripts/resumo_testes.py
+
+      - name: Publicar relatorios de teste e cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: relatorios-de-teste
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+            target/site/jacoco/
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  docker:
+    name: 3. Imagem Docker
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      imagem: ${{ steps.nome.outputs.imagem }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # O GHCR exige o nome do repositorio em minusculas.
+      - name: Definir nome da imagem
+        id: nome
+        run: |
+          repositorio="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "repositorio=${repositorio}" >> "$GITHUB_OUTPUT"
+          echo "imagem=${repositorio}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Preparar Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tag imutavel = hash do commit (rastreabilidade) + "latest" na main.
+      - name: Tags e labels da imagem
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.nome.outputs.repositorio }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build e push da imagem
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Resumo
+        run: |
+          {
+            echo "## Imagem publicada"
+            echo
+            echo "\`${{ steps.nome.outputs.imagem }}\`"
+            echo
+            echo "Tags: \`${GITHUB_SHA}\`, \`latest\`. Esta mesma imagem sera implantada em staging e em producao."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  deploy-staging:
+    name: 4. Deploy staging
+    needs: docker
+    # Padrao: runner efemero do GitHub. Para um ambiente persistente, registre
+    # um self-hosted runner (Linux + Docker) e crie a variavel DEPLOY_RUNNER.
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+    environment:
+      name: staging
+    permissions:
+      contents: read
+      packages: write
+    env:
+      AMBIENTE: staging
+      API_IMAGE: ${{ needs.docker.outputs.imagem }}
+      APP_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy com Docker Compose
+        env:
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
+          MONGO_APP_PASSWORD: ${{ secrets.MONGO_APP_PASSWORD }}
+        run: ./deploy/deploy.sh "$AMBIENTE"
+
+      - name: Smoke test
+        run: ./deploy/smoke-test.sh "$AMBIENTE"
+
+      - name: Captura de tela da pagina inicial
+        if: always()
+        continue-on-error: true
+        run: ./deploy/captura-tela.sh "$AMBIENTE"
+
+      - name: Logs e estado dos containers
+        if: always()
+        run: ./deploy/coletar-logs.sh "$AMBIENTE"
+
+      - name: Promover imagem (tag "staging")
+        run: docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY,,}:staging" "$API_IMAGE"
+
+      - name: Publicar evidencias
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: evidencias-staging
+          path: evidencias/staging/
+          retention-days: 30
+
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    name: 5. Deploy producao
+    needs: [docker, deploy-staging]
+    runs-on: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+    # Com "Required reviewers" configurado no environment "production"
+    # (Settings > Environments), o job aguarda aprovacao manual antes de rodar.
+    environment:
+      name: production
+    permissions:
+      contents: read
+      packages: write
+    env:
+      AMBIENTE: production
+      API_IMAGE: ${{ needs.docker.outputs.imagem }}
+      APP_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Login no GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy com Docker Compose
+        env:
+          MONGO_ROOT_PASSWORD: ${{ secrets.MONGO_ROOT_PASSWORD }}
+          MONGO_APP_PASSWORD: ${{ secrets.MONGO_APP_PASSWORD }}
+        run: ./deploy/deploy.sh "$AMBIENTE"
+
+      - name: Smoke test
+        run: ./deploy/smoke-test.sh "$AMBIENTE"
+
+      - name: Captura de tela da pagina inicial
+        if: always()
+        continue-on-error: true
+        run: ./deploy/captura-tela.sh "$AMBIENTE"
+
+      - name: Logs e estado dos containers
+        if: always()
+        run: ./deploy/coletar-logs.sh "$AMBIENTE"
+
+      - name: Promover imagem (tag "production")
+        run: docker buildx imagetools create --tag "ghcr.io/${GITHUB_REPOSITORY,,}:production" "$API_IMAGE"
+
+      - name: Publicar evidencias
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: evidencias-production
+          path: evidencias/production/
+          retention-days: 30

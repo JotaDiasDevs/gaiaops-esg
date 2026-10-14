@@ -1,0 +1,79 @@
+# =============================================================================
+# GaiaOps ESG - orquestracao com Docker Compose
+#
+# Dois servicos:
+#   mongo - MongoDB 8.0, com volume persistente e script de inicializacao
+#   api   - a API Spring Boot (imagem construida pelo Dockerfile)
+#
+# O MESMO arquivo serve para todos os ambientes. O que muda entre local,
+# staging e producao vem de um arquivo de variaveis:
+#   local    -> .env                  (copie de .env.example)
+#   staging  -> deploy/staging.env    (usado por deploy/deploy.sh)
+#   producao -> deploy/production.env (usado por deploy/deploy.sh)
+#
+# Uso local:  docker compose up -d --build
+# =============================================================================
+
+services:
+
+  mongo:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      # Usuario administrador do MongoDB (so para administracao).
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?defina MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?defina MONGO_ROOT_PASSWORD}
+      # Banco da aplicacao e usuario com acesso restrito a ele, lidos por mongo/init/01-setup.js.
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-gaiaops_esg}
+      MONGO_APP_USER: ${MONGO_APP_USER:?defina MONGO_APP_USER}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?defina MONGO_APP_PASSWORD}
+    volumes:
+      # Volume nomeado: os dados sobrevivem a "docker compose down" e a novos deploys.
+      - mongo-data:/data/db
+      # Scripts executados uma unica vez, na criacao do volume (validadores, indices, usuario).
+      - ./mongo/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - backend
+    # Sem "ports": o banco NAO fica exposto fora do Docker. So a API o alcanca.
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  api:
+    image: ${API_IMAGE:-gaiaops-esg-api:local}
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        # So inicia a API quando o MongoDB responde ao ping.
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+      GAIAOPS_AMBIENTE: ${GAIAOPS_AMBIENTE:-local}
+      GAIAOPS_SEED_ENABLED: ${GAIAOPS_SEED_ENABLED:-true}
+      APP_COMMIT: ${APP_COMMIT:-local}
+      # "mongo" e o nome do servico: o DNS interno da rede do Compose resolve para o container.
+      MONGODB_URI: mongodb://${MONGO_APP_USER}:${MONGO_APP_PASSWORD}@mongo:27017/${MONGO_DATABASE:-gaiaops_esg}?authSource=${MONGO_DATABASE:-gaiaops_esg}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    networks:
+      - frontend
+      - backend
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-768m}
+
+volumes:
+  mongo-data:
+
+networks:
+  # Rede de entrada: onde a API publica a porta para o host.
+  frontend:
+  # Rede interna: API <-> MongoDB. "internal" bloqueia qualquer saida para fora do Docker.
+  backend:
+    internal: true

@@ -1,0 +1,18 @@
+# Somente pom.xml e src/ sao copiados para a imagem. O restante fica fora do
+# contexto de build para acelerar o envio ao Docker e nunca vazar segredos.
+target/
+.git/
+.github/
+.mvn/
+.idea/
+.vscode/
+*.iml
+docs/
+evidencias/
+deploy/
+mongo/
+tools/
+.env
+.env.*
+!.env.example
+*.md
