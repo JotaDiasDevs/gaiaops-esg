@@ -7,7 +7,7 @@ FIAP · Fase *Navegando pelo mundo DevOps*
 
 | Integrante | RM |
 |---|---|
-| _Nome do integrante_ | _RM00000_ |
+| João Victor Semente Dias | RM562065 |
 
 ---
 
@@ -253,13 +253,21 @@ O arquivo completo, comentado linha a linha, está em [`Dockerfile`](Dockerfile)
 ![Deploy produção](docs/prints/07-deploy-producao.png)
 
 ### Ambiente de staging funcionando
+Print gerado pelo próprio pipeline (Chrome headless) logo após o smoke test: faixa laranja de staging e commit implantado.
 ![Staging](docs/prints/08-staging-pagina-inicial.png)
 
+### Swagger UI disponível em staging
+![Swagger em staging](docs/prints/10-staging-swagger.png)
+
 ### Ambiente de produção funcionando
+Mesmo commit de staging; perfil `prod`, sem o link do Swagger.
 ![Produção](docs/prints/09-producao-pagina-inicial.png)
 
 ### Imagem publicada no GHCR (tags do commit, `latest`, `staging` e `production`)
 ![GHCR](docs/prints/04-imagem-ghcr.png)
+
+### Deploys por ambiente no GitHub
+![Deployments](docs/prints/11-environments.png)
 
 ---
 
@@ -337,6 +345,6 @@ gaiaops-esg/
 | Dockerfile funcional | ☑ |
 | docker-compose.yml ou arquivos Kubernetes | ☑ |
 | Pipeline com etapas de build, teste e deploy | ☑ |
-| README.md com instruções e prints | ☐ |
-| Documentação técnica com evidências (PDF ou PPT) | ☐ |
-| Deploy realizado nos ambientes staging e produção | ☐ |
+| README.md com instruções e prints | ☑ |
+| Documentação técnica com evidências (PDF ou PPT) | ☑ |
+| Deploy realizado nos ambientes staging e produção | ☑ |

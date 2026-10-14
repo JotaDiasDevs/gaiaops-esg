@@ -41,7 +41,7 @@ except ImportError:
 # PREENCHA ANTES DA ENTREGA
 # =============================================================================
 INTEGRANTES = [
-    ("Nome do integrante", "RM00000"),
+    ("João Victor Semente Dias", "RM562065"),
 ]
 REPOSITORIO = "https://github.com/JotaDiasDevs/gaiaops-esg"
 
@@ -667,6 +667,13 @@ def secao_desafios(d):
          "Scripts com fim de linha CRLF ou sem permissão de execução quebram no runner Linux.",
          "`.gitattributes` força LF em `.sh`, `mvnw`, `.yml` e `.env`, e os scripts são versionados com bit de "
          "execução (`git update-index --chmod=+x`)."),
+        ("Primeira execução chegou à produção sem aprovação",
+         "Os environments `staging` e `production` não existiam antes do primeiro push. O GitHub os criou "
+         "automaticamente, sem regras de proteção, e a execução #1 implantou em produção sem esperar revisão.",
+         "Configuração de *Required reviewers* no environment `production` e nova execução manual "
+         "(`workflow_dispatch`). A partir dela, o pipeline para em *Waiting for review* antes de produção "
+         "(Figura 8). Também ficou registrado que o *Re-run* de uma execução repete o mesmo commit: para "
+         "implantar um commit novo, é preciso disparar uma nova execução."),
         ("Garantir que produção receba exatamente o que foi testado",
          "Reconstruir a imagem a cada deploy poderia gerar artefatos diferentes entre staging e produção.",
          "Build once, deploy many: a imagem é construída uma vez, identificada pelo hash do commit, e promovida "
